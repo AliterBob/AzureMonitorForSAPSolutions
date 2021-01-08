@@ -208,6 +208,9 @@ class ProviderCheck(ABC):
       self.fullName = "%s.%s" % (self.providerInstance.fullName, self.name)
       self.tracer = providerInstance.tracer
 
+   def getLockName(self) -> str:
+      return "%s/%s" % (self.providerInstance.fullName, self.name)
+
    # Return if this check is enabled or not
    def isEnabled(self) -> bool:
       self.tracer.debug("[%s] verifying if check is enabled" % self.fullName)
