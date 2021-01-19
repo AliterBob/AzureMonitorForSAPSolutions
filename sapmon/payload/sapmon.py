@@ -204,7 +204,7 @@ def monitor(args: str) -> None:
    global ctx, tracer
    tracer.info("starting monitor payload")
 
-   pool = ThreadPoolExecutor(10)
+   pool = ThreadPoolExecutor(NUMBER_OF_THREADS)
    allChecks = []
 
    while True:
@@ -252,7 +252,7 @@ def monitor(args: str) -> None:
             tracer.debug("[%s] getting queued" % check.fullName)
             ctx.checkLockSet.add(check.getLockName())
             pool.submit(runCheck, check)
-      sleep(5)
+      sleep(CHECK_WAIT_IN_SECONDS)
 
 # prepareUpdate will prepare the resources like keyvault, log analytics etc for the version passed as an argument
 # prepareUpdate needs to be run when a version upgrade requires specific update to the content of the resources

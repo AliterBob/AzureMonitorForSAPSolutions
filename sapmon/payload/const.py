@@ -3,7 +3,7 @@ import logging
 import os
 
 # Version of the payload script
-PAYLOAD_VERSION = "2.7"
+PAYLOAD_VERSION = "2.8"
 
 # Default file/directory locations
 PATH_PAYLOAD       = os.path.dirname(os.path.realpath(__file__))
@@ -26,17 +26,20 @@ DEFAULT_FILE_TRACE_LEVEL    = logging.INFO
 DEFAULT_QUEUE_TRACE_LEVEL   = logging.DEBUG
 
 # Config parameters
-CONFIG_SECTION_GLOBAL = "-global-"
-METHODNAME_ACTION     = "_action%s"
-STORAGE_ACCESS_KEY_NAME = "storageAccessKey"
+CONFIG_SECTION_GLOBAL     = "-global-"
+METHODNAME_ACTION         = "_action%s"
+STORAGE_ACCESS_KEY_NAME   = "storageAccessKey"
+CONFIG_REFRESH_IN_SECONDS = 86400
+
+# Parallel configurations
+NUMBER_OF_THREADS     = 10
+CHECK_WAIT_IN_SECONDS = 5
 
 # Naming conventions for generated resources
 KEYVAULT_NAMING_CONVENTION               = "sapmon-kv-%s"
 STORAGE_ACCOUNT_NAMING_CONVENTION        = "sapmonsto%s"
 STORAGE_QUEUE_NAMING_CONVENTION          = "sapmon-que-%s"
 CUSTOMER_METRICS_QUEUE_NAMING_CONVENTION = "sapmon-anl-%s"
-
-CONFIG_REFRESH_IN_SECONDS = 86400
 
 # Error codes
 ERROR_GETTING_AUTH_TOKEN       = 10
