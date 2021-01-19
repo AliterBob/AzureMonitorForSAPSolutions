@@ -11,9 +11,8 @@ PATH_ROOT          = os.path.abspath(os.path.join(PATH_PAYLOAD, ".."))
 PATH_CONTENT       = os.path.join(PATH_ROOT, "content")
 PATH_TRACE         = os.path.join(PATH_ROOT, "trace")
 PATH_STATE         = os.path.join(PATH_ROOT, "state")
-PATH_REFRESH       = os.path.join(PATH_ROOT, "refresh")
 FILENAME_TRACE     = os.path.join(PATH_TRACE, "sapmon.trc")
-FILENAME_REFRESH   = os.path.join(PATH_REFRESH, "refreshNeeded")
+FILENAME_REFRESH   = os.path.join(PATH_STATE, "refresh")
 
 # Time formats
 TIME_FORMAT_LOG_ANALYTICS = "%a, %d %b %Y %H:%M:%S GMT"
