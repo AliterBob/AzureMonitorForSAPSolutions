@@ -204,6 +204,14 @@ def monitor(args: str) -> None:
    global ctx, tracer
    tracer.info("starting monitor payload")
 
+   logAnalyticsWorkspaceId = ctx.globalParams.get("logAnalyticsWorkspaceId", None)
+   logAnalyticsSharedKey = ctx.globalParams.get("logAnalyticsSharedKey", None)
+   if not logAnalyticsWorkspaceId or not logAnalyticsSharedKey:
+      tracer.critical("global config must contain logAnalyticsWorkspaceId and logAnalyticsSharedKey")
+      sys.exit(ERROR_GETTING_LOG_CREDENTIALS)
+   ctx.azLa = AzureLogAnalytics(tracer,
+                                logAnalyticsWorkspaceId,
+                                logAnalyticsSharedKey)
    pool = ThreadPoolExecutor(10)
    allChecks = []
 
@@ -214,18 +222,13 @@ def monitor(args: str) -> None:
 
       if secondsSinceRefresh > CONFIG_REFRESH_IN_SECONDS or os.path.isfile(FILENAME_REFRESH):
          tracer.info("Config has not been refreshed in %d seconds or refresh file found, refreshing", secondsSinceRefresh)
+         allChecks = []
+         ctx.instances = []
+
          if not loadConfig():
             tracer.critical("failed to load config from KeyVault")
             sys.exit(ERROR_LOADING_CONFIG)
-         logAnalyticsWorkspaceId = ctx.globalParams.get("logAnalyticsWorkspaceId", None)
-         logAnalyticsSharedKey = ctx.globalParams.get("logAnalyticsSharedKey", None)
-         if not logAnalyticsWorkspaceId or not logAnalyticsSharedKey:
-            tracer.critical("global config must contain logAnalyticsWorkspaceId and logAnalyticsSharedKey")
-            sys.exit(ERROR_GETTING_LOG_CREDENTIALS)
-         ctx.azLa = AzureLogAnalytics(tracer,
-                                      logAnalyticsWorkspaceId,
-                                      logAnalyticsSharedKey)
-         allChecks = []
+         
          for i in ctx.instances:
             for c in i.checks:
                allChecks.append(c)
