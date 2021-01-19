@@ -208,10 +208,11 @@ def monitor(args: str) -> None:
    allChecks = []
 
    while True:
-      # check to see if config refresh
       now = datetime.now()
       secondsSinceRefresh = (now-ctx.lastConfigRefreshTime).total_seconds()
 
+      # check if config needs refresh
+      # needs refresh if 24 hours as passed or refresh file found
       if secondsSinceRefresh > CONFIG_REFRESH_IN_SECONDS or os.path.isfile(FILENAME_REFRESH):
          tracer.info("Config has not been refreshed in %d seconds or refresh file found, refreshing", secondsSinceRefresh)
          allChecks = []
@@ -228,7 +229,7 @@ def monitor(args: str) -> None:
          ctx.azLa = AzureLogAnalytics(tracer,
                                       logAnalyticsWorkspaceId,
                                       logAnalyticsSharedKey)
-                                      
+
          for i in ctx.instances:
             for c in i.checks:
                allChecks.append(c)
@@ -239,16 +240,16 @@ def monitor(args: str) -> None:
 
       for check in allChecks:
          if check.getLockName() in ctx.checkLockSet:
-            tracer.debug("check %s already queued/executing, skipping" % check.getLockName())
+            tracer.debug("[%s] already queued/executing, skipping" % check.fullname)
             continue
          elif not check.isEnabled():
-            tracer.debug("check %s is not enabled, skipping" % check.getLockName())
+            tracer.debug("[%s] not enabled, skipping" % check.fullname)
             continue
          elif not check.isDue():
-            tracer.debug("check %s is not due for execution, skipping" % check.getLockName())
+            tracer.debug("[%s] not due for execution, skipping" % check.fullname)
             continue
          else:
-            tracer.debug("check %s getting queued" % check.getLockName())
+            tracer.debug("[%s] getting queued" % check.fullname)
             ctx.checkLockSet.add(check.getLockName())
             pool.submit(runCheck, check)
       sleep(5)
