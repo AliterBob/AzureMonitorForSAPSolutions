@@ -210,7 +210,7 @@ class ProviderCheck(ABC):
 
    # Return check name for locking
    def getLockName(self) -> str:
-      return "%s/%s" % (self.providerInstance.fullName, self.name)
+      return "%s.%s" % (self.providerInstance.fullName, self.name)
 
    # Return if this check is enabled or not
    def isEnabled(self) -> bool:

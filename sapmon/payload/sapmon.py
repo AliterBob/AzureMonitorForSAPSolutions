@@ -210,11 +210,18 @@ def monitor(args: str) -> None:
    while True:
       now = datetime.now()
       secondsSinceRefresh = (now-ctx.lastConfigRefreshTime).total_seconds()
+      refresh = False
 
       # check if config needs refresh
       # needs refresh if 24 hours as passed or refresh file found
-      if secondsSinceRefresh > CONFIG_REFRESH_IN_SECONDS or os.path.isfile(FILENAME_REFRESH):
-         tracer.info("Config has not been refreshed in %d seconds or refresh file found, refreshing", secondsSinceRefresh)
+      if secondsSinceRefresh > CONFIG_REFRESH_IN_SECONDS:
+         tracer.info("Config has not been refreshed in %d seconds, refreshing", secondsSinceRefresh)
+         refresh = True
+      elif os.path.isfile(FILENAME_REFRESH):
+         tracer.info("Refresh file found, refreshing")
+         refresh = True
+
+      if refresh:
          allChecks = []
          ctx.instances = []
 
