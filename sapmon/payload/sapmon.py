@@ -247,16 +247,16 @@ def monitor(args: str) -> None:
 
       for check in allChecks:
          if check.getLockName() in ctx.checkLockSet:
-            tracer.debug("[%s] already queued/executing, skipping" % check.fullName)
+            tracer.info("[%s] already queued/executing, skipping" % check.fullName)
             continue
          elif not check.isEnabled():
-            tracer.debug("[%s] not enabled, skipping" % check.fullName)
+            tracer.info("[%s] not enabled, skipping" % check.fullName)
             continue
          elif not check.isDue():
-            tracer.debug("[%s] not due for execution, skipping" % check.fullName)
+            tracer.info("[%s] not due for execution, skipping" % check.fullName)
             continue
          else:
-            tracer.debug("[%s] getting queued" % check.fullName)
+            tracer.info("[%s] getting queued" % check.fullName)
             ctx.checkLockSet.add(check.getLockName())
             pool.submit(runCheck, check)
       sleep(CHECK_WAIT_IN_SECONDS)
