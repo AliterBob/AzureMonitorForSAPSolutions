@@ -14,6 +14,7 @@ from zeep.transports import Transport
 from zeep.exceptions import Fault
 
 # Payload modules
+from const import PAYLOAD_VERSION
 from const import *
 from helper.azure import *
 from helper.context import *
@@ -60,10 +61,10 @@ class sapNetweaverProviderInstance(ProviderInstance):
             return False
 
         instanceNr = self.providerProperties.get("sapInstanceNr", None)
-        if not instanceNr:
+        if instanceNr is None: # 0 is an acceptable value for Instance Number
             self.tracer.error("[%s] sapInstanceNr cannot be empty" % self.fullName)
             return False
-        if not isinstance(instanceNr, int) or instanceNr < 0 or instanceNr > 98:
+        if not type(instanceNr) is int or instanceNr < 0 or instanceNr > 98:
             self.tracer.error("[%s] sapInstanceNr can only be between 00 and 98 but %s was passed" % (self.fullName, str(instanceNr)))
             return False
         self.sapInstanceNr = str(instanceNr).zfill(2)
@@ -399,8 +400,13 @@ class sapNetweaverProviderCheck(ProviderCheck):
                 httpProtocol = "http"
                 port = instance['httpPort']
 
-            client = self.providerInstance.getClient(instance['hostname'], httpProtocol, port)
-            results = self.providerInstance.callSoapApi(client, apiName)
+            results = []
+            try:
+                client = self.providerInstance.getClient(instance['hostname'], httpProtocol, port)
+                results = self.providerInstance.callSoapApi(client, apiName)
+            except Exception as e:
+                self.tracer.error("[%s] unable to call the Soap Api %s - %s://%s:%s, %s", self.fullName, apiName, httpProtocol, instance['hostname'], port, e)
+                continue
 
             if len(results) != 0:
                 parsed_results = parser(results)
@@ -433,6 +439,9 @@ class sapNetweaverProviderCheck(ProviderCheck):
 
     def generateJsonString(self) -> str:
         self.tracer.info("[%s] converting result to json string" % self.fullName)
+        if self.lastResult is not None and len(self.lastResult) != 0:
+            for result in self.lastResult:
+                result['SAPMON_VERSION'] = PAYLOAD_VERSION
         resultJsonString = json.dumps(self.lastResult, sort_keys=True, indent=4, cls=JsonEncoder)
         self.tracer.debug("[%s] resultJson=%s" % (self.fullName, str(resultJsonString)))
         return resultJsonString
