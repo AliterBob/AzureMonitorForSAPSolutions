@@ -36,6 +36,9 @@ MINIMUM_RFC_INSTALL_RETRY_INTERVAL = timedelta(minutes=30)
 # timeout to use for all SOAP WSDL fetch and other API calls
 SOAP_API_TIMEOUT_SECS = 5
 
+# soap client cache expiration, after which amount of time both successful + failed soap client instantiation attempts will be refreshed
+SOAP_CLIENT_CACHE_EXPIRATIION = timedelta(minutes=10)
+
 class sapNetweaverProviderInstance(ProviderInstance):
     # static / class variables to enforce singleton behavior around rfc sdk installation attempts across all 
     # instances of SAP Netweaver provider
@@ -58,6 +61,7 @@ class sapNetweaverProviderInstance(ProviderInstance):
         self.sapPassword = None
         self.sapClientId = None
         self.sapRfcSdkBlobUrl = None
+        self.sapLogonGroup = None
 
         # provider instance flag for whether RFC calls should be enabled for this specific Netweaver provider instance
         self._areRfcCallsEnabled = None
@@ -112,6 +116,7 @@ class sapNetweaverProviderInstance(ProviderInstance):
         self.sapUsername = self.providerProperties.get('sapUsername', None)
         self.sapPassword = self.providerProperties.get('sapPassword', None)
         self.sapClientId = self.providerProperties.get('sapClientId', None)
+        self.sapLogonGroup = self.providerProperties.get('sapLogonGroup',None)
         self.sapRfcSdkBlobUrl = self.providerProperties.get('sapRfcSdkBlobUrl', None)
 
         # if user did not specify password directly via UI, check to see if they instead
@@ -220,32 +225,34 @@ class sapNetweaverProviderInstance(ProviderInstance):
         url = '%s://%s:%s/?wsdl' % (httpProtocol, hostname, port)
 
         if (useCache and url in self._soapClientCache):
-            soapClient = self._soapClientCache[url]
-            if (soapClient):
-                # self.tracer.debug("%s using cached SOAP client for wsdl: %s", self.logTag, url)
-                return soapClient
-            else:
-                raise Exception("%s cached SOAP client failure for wsdl: %s" % (self.logTag, url))
+            cacheEntry = self._soapClientCache[url]
+            # respect cache expiration;  if cache is expired allow client to be refreshed below
+            if (cacheEntry['expirationDateTime'] > datetime.utcnow()):
+                if (cacheEntry['client']):
+                    # self.tracer.info("%s using cached SOAP client for wsdl: %s", self.logTag, url)
+                    return cacheEntry['client']
+                else:
+                    # previously cached soap client attempt was failure 
+                    raise Exception("%s cached SOAP client failure for wsdl: %s" % (self.logTag, url))
 
         self.tracer.info("%s connecting to wsdl url: %s", self.logTag, url)
 
         startTime = time()
+        client = None
         try:
             session = Session()
             session.verify = False
             client = Client(url, transport=Transport(session=session, timeout=SOAP_API_TIMEOUT_SECS, operation_timeout=SOAP_API_TIMEOUT_SECS))
             self.tracer.info("%s initialized SOAP client url: %s [%d ms]",
                              self.logTag, url, TimeUtils.getElapsedMilliseconds(startTime))
-
-            # cache this successful client for future API calls
-            self._soapClientCache[url] = client
             return client
         except Exception as e:
-            # cache this failed client so we don't retry on future API calls
-            self._soapClientCache[url] = None
             self.tracer.error("%s error fetching wsdl url: %s: %s [%d ms]",
                               self.logTag, url, e, TimeUtils.getElapsedMilliseconds(startTime), exc_info=True)
             raise e
+        finally:
+            # cache successsful and failed soap client attempts to reduce future API calls
+            self._soapClientCache[url] = { 'client': client, 'expirationDateTime': datetime.utcnow() + SOAP_CLIENT_CACHE_EXPIRATIION }
 
     def callSoapApi(self, client: Client, apiName: str) -> str:
         self.tracer.info("%s executing SOAP API: %s for wsdl: %s", self.logTag, apiName, client.wsdl.location)
@@ -264,12 +271,12 @@ class sapNetweaverProviderInstance(ProviderInstance):
             raise e
 
     """
-    return a netweaver RFC client initialized with the first healthy ABAP/dispatcher instance we find
-    for this SID.  If no healthy ABAP instances, this method will throw exception
+    return a netweaver RFC client initialized with "MESSAGESERVER" instance we find
+    for this SID.  
     """
     def getRfcClient(self, logTag: str) -> NetWeaverMetricClient:
-        # RFC connections against direct application server instances can only be made to 'ABAP' instances
-        dispatcherInstance = self.getActiveDispatcherInstance()
+        # RFC connections against application server instances can be made through 'MESSAGESERVER' instances
+        dispatcherInstance = self.getMessageServerInstance()
 
         return MetricClientFactory.getMetricClient(tracer=self.tracer, 
                                                    logTag=logTag,
@@ -278,6 +285,7 @@ class sapNetweaverProviderInstance(ProviderInstance):
                                                    sapSubdomain=self.sapSubdomain,
                                                    sapSid=self.sapSid,
                                                    sapClient=str(self.sapClientId),
+                                                   sapLogonGroup = self.sapLogonGroup,
                                                    sapUsername=self.sapUsername,
                                                    sapPassword=self.sapPassword)
 
@@ -491,7 +499,23 @@ class sapNetweaverProviderInstance(ProviderInstance):
 
         # return first healthy instance in list
         return healthyInstances[0]
-
+    
+    """
+    fetch cached instance list for this provider and filter down to the list 'MESSAGESERVER' feature functions
+    return the available message server
+    """
+    def getMessageServerInstance(self):
+        # Use cached list of instances if available since they don't change that frequently,
+        # and filter down to only healthy dispatcher instances since RFC direct application server connection
+        # only works against dispatchera
+        dispatcherInstances = self.getInstances(filterFeatures=['MESSAGESERVER'], filterType='include', useCache=True)
+        
+        if (len(dispatcherInstances) == 0):
+            raise Exception("No MESSAGESERVER instance found for %s" % self.sapSid)
+        
+        # return first healthy instance in list
+        return dispatcherInstances[0]
+    
     """
     given a list of sap instances and a set of instance features (ie. functions) to include or exclude,
     apply filtering logic and return only those instances that match the filter conditions:
@@ -582,9 +606,10 @@ class sapNetweaverProviderInstance(ProviderInstance):
             if (not self.sapUsername or
                 not self.sapPassword or
                 not self.sapClientId or
-                not self.sapRfcSdkBlobUrl):
+                not self.sapRfcSdkBlobUrl or
+                not self.sapLogonGroup):
                 self.tracer.info("%s Netweaver RFC calls disabled for because missing one or more required " +
-                                 "config properties: sapUsername, sapPassword, sapClientId, and sapRfcSdkBlobUrl",
+                                 "config properties: sapUsername, sapPassword, sapClientId, sapLogonGroup and sapRfcSdkBlobUrl",
                                  self.logTag)
                 self._areRfcCallsEnabled = False
                 return False
@@ -594,7 +619,7 @@ class sapNetweaverProviderInstance(ProviderInstance):
                 sapNetweaverProviderInstance._isRfcInstalled = self._trySetupRfcSdk()
                 
             self._areRfcCallsEnabled = sapNetweaverProviderInstance._isRfcInstalled
-            
+
             return self._areRfcCallsEnabled
 
         except Exception as e:
@@ -729,6 +754,10 @@ class sapNetweaverProviderInstance(ProviderInstance):
 class sapNetweaverProviderCheck(ProviderCheck):
     lastResult = []
 
+    # hard-coded set of action names that require RFC SDK to be usable 
+    # and can override runtime isEnabled() check if RFC is not usable
+    rfcCheckNames = {'SMON_Metrics', 'SWNC_Workload_Metrics', 'SDF_Short_Dumps_Metrics'}
+
     def __init__(self,
         provider: ProviderInstance,
         **kwargs
@@ -739,6 +768,28 @@ class sapNetweaverProviderCheck(ProviderCheck):
 
         # provider check common logging prefix
         self.logTag = "[%s][%s]" % (self.fullName, self.providerInstance.sapSid)
+
+    """
+    return flag indicating whether this check instances requires the SAP RFC SDK to be installed and usable
+    """
+    def doesCheckRequireRfcSdk(self) -> bool:
+        return self.name in sapNetweaverProviderCheck.rfcCheckNames
+
+    """
+    override base ProviderCheck implementation to allow RFC metric collection methods enabled in
+    the default Provider JSON configuration yet treated as disabled at runtime if RFC SDK
+    is not configured (to reduce log spam)
+    """
+    def isEnabled(self) -> bool:
+        if not self.state["isEnabled"]:
+            return False
+        
+        # if this check requires RFC and RFC is not installed, then treat as disabled
+        if (self.doesCheckRequireRfcSdk()):
+            if (not self.providerInstance.areRfcMetricsEnabled()):
+                return False
+
+        return True
 
     def _getFormattedTimestamp(self) -> str:
         return datetime.utcnow().isoformat()
@@ -959,7 +1010,7 @@ class sapNetweaverProviderCheck(ProviderCheck):
             # track latency of entire method excecution with dependencies
             latencyStartTime = time()
             
-            # initialize a client for the first healthy ABAP/Dispatcher instance we find
+            # initialize a client for the first healthy MessageServer instance we find
             client = self.providerInstance.getRfcClient(logTag=self.logTag)
 
             # update logging prefix with the specific instance details of the client
@@ -1006,7 +1057,7 @@ class sapNetweaverProviderCheck(ProviderCheck):
             # track latency of entire method excecution with dependencies
             latencyStartTime = time()
 
-            # initialize a client for the first healthy ABAP/Dispatcher instance we find
+            # initialize a client for the first healthy MessageServer instance we find
             client = self.providerInstance.getRfcClient(logTag=self.logTag)
 
             # update logging prefix with the specific instance details of the client
@@ -1055,7 +1106,7 @@ class sapNetweaverProviderCheck(ProviderCheck):
             # track latency of entire method excecution with dependencies
             latencyStartTime = time()
 
-            # initialize a client for the first healthy ABAP/Dispatcher instance we find
+            # initialize a client for the first healthy MessageServer instance we find
             client = self.providerInstance.getRfcClient(logTag=self.logTag)
 
             # update logging prefix with the specific instance details of the client
